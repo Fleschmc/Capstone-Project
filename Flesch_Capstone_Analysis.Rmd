@@ -1,0 +1,94 @@
+---
+title: "Capstone_Analysis"
+author: "Michael Flesch"
+date: "4/7/2021"
+output: 
+  html_document: 
+    theme: darkly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(reshape2)
+library(lubridate)
+library(dplyr)
+setwd('C:/Users/Flesch Family/Desktop/USF/Capstone-Project/')
+tweets <- read.csv('pulled_pred.csv')
+djia <- read.csv('DJIA.csv')
+```
+
+```{r}
+head(tweets[, c('tweet', 'creation_date', 'retweets', 'likes', 'location')], 2)
+```
+
+
+```{r Formatting, message = FALSE, warning = FALSE, include = FALSE}
+tweets$creation_y.m <- as.Date(tweets$creation_y.m, format = '%Y-%m-%d')
+tweets <- tweets[!duplicated(tweets),]
+djia$creation_y.m <- as.Date(djia$DATE)
+grouped_day <- tweets %>% group_by(creation_y.m, pred) %>% summarize(N = n())
+djia <- left_join(djia[, c(2,3)], grouped_day)
+djia <- djia[djia$DJIA != '.',]
+djia$DJIA <- as.numeric(djia$DJIA)
+djia <- djia[complete.cases(djia),]
+
+# Creating date ranges for political affiliation of the president
+democrats <- c(seq.Date(as.Date('2009-01-20'), as.Date('2017-01-19'), by = 'day'),
+               seq.Date(as.Date('2021-01-20'), as.Date('2021-03-29'), by = 'day'))
+republicans <- c(seq.Date(as.Date('2008-04-02'), as.Date('2009-01-19'), by = 'day'),
+                 seq.Date(as.Date('2017-01-20'), as.Date('2021-01-19'), by = 'day'))
+
+grouped_day$presparty <- ifelse(grouped_day$creation_y.m %in% democrats, 'Democrat',
+                                ifelse(grouped_day$creation_y.m %in% republicans, 'Republican', 'Error'))
+
+grouped_day <- dcast(grouped_day, creation_y.m + presparty ~ pred, value.var = 'N')
+grouped_day$belief <- grouped_day$`1` / (grouped_day$`0` + grouped_day$`1`)
+grouped_day$creation_ym <- format(grouped_day$creation_y.m, '%Y-%m')
+
+min(grouped_day$creation_y.m)
+```
+
+```{r, message = FALSE, warning = FALSE}
+ggplot(grouped_day, aes(x = creation_y.m, y = belief)) + geom_line() + geom_smooth(color = 'purple') +
+  geom_vline(xintercept = as.Date('2009-01-19'), color = 'blue', size = 0.75) + 
+  geom_vline(xintercept = as.Date('2017-01-19'), color = 'red', size = 0.75)  +
+  geom_vline(xintercept = as.Date('2021-01-19'), color = 'blue', size = 0.75) +
+  geom_vline(xintercept = as.Date('2013-01-19'), color = 'blue', size = 0.75) +
+  labs(x = 'Date (Day)', y = 'Belief (%)', title = 'Belief in Climate Change') + 
+  scale_x_date(date_breaks = '2 year', date_labels = '%Y') + ylim(0.6, 1)
+ggsave('belief_day.png')
+
+grouped_week <- grouped_day %>% group_by(week = floor_date(creation_y.m, 'week')) %>% summarize(belief = mean(belief), presparty = max(presparty))
+
+ggplot(grouped_week, aes(x = week, y = belief)) + geom_line() + geom_smooth(method = 'gam', color = 'purple') +
+  geom_vline(xintercept = as.Date('2009-01-19'), color = 'blue', size = 0.75) + 
+  geom_vline(xintercept = as.Date('2017-01-19'), color = 'red', size = 0.75)  +
+  geom_vline(xintercept = as.Date('2021-01-19'), color = 'blue', size = 0.75) +
+  geom_vline(xintercept = as.Date('2013-01-19'), color = 'blue', size = 0.75) +
+  labs(x = 'Date (Week)', y = 'Belief (%)', title = 'Belief in Climate Change') + 
+  scale_x_date(date_breaks = '2 year', date_labels = '%Y')
+ggsave('belief_week.png')
+
+grouped_month <- grouped_day %>% group_by(month = floor_date(creation_y.m, 'month')) %>% summarize(belief = mean(belief), presparty = max(presparty))
+
+ggplot(grouped_month, aes(x = month, y = belief)) + geom_line() + geom_smooth(color = 'purple') +
+  geom_vline(xintercept = as.Date('2009-01-19'), color = 'blue', size = 0.75) + 
+  geom_vline(xintercept = as.Date('2017-01-19'), color = 'red', size = 0.75)  +
+  geom_vline(xintercept = as.Date('2021-01-19'), color = 'blue', size = 0.75) +
+  geom_vline(xintercept = as.Date('2013-01-19'), color = 'blue', size = 0.75) +
+  labs(x = 'Date', y = 'Belief (%)', title = 'Belief in Climate Change') + 
+  scale_x_date(date_breaks = '2 year', date_labels = '%Y')
+ggsave('belief_month.png')
+
+```
+
+
+```{r, include = FALSE}
+model <- lm('belief ~ presparty', grouped_day)
+
+summary(model)
+```
+
+
+

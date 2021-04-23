@@ -1,0 +1,126 @@
+---
+title: "Capstone_Project"
+author: "Michael Flesch"
+date: "2/10/2021"
+output: 
+  html_document:
+    theme: darkly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+data <- read.csv('C:/Users/Flesch Family/Desktop/USF/Capstone-Project/tweet_global_warming.csv')
+knitr:::spin_child('C:/Users/Flesch Family/Desktop/USF/ECON691-NLP/NLP_PPF.r')
+knitr:::spin_child('C:/Users/Flesch Family/Desktop/USF/ECON691-NLP/nlp_environ.r')
+library(ggplot2)
+nlp_environ()
+```
+
+## Cleaning
+### Dealing with NAs among other things
+```{r Cleaning, warning = F, message = F}
+data <- data[complete.cases(data),]
+
+lapply(data, function(x) {any(is.na(x))})
+
+ggplot(data, aes(x = existence.confidence)) + geom_histogram()
+data <- data[data$existence.confidence > 0.6,]
+
+data <- data[data$existence != 'N/A',]
+
+data$binary <- ifelse(data$existence == 'Yes', 1, ifelse(data$existence == 'Y', 1,
+                                                         ifelse(data$existence == 'N', 0,
+                                                                ifelse(data$existence == 'No', 0, 'error'))))
+
+data$processed <- preprocess_corpus(data, 'tweet', astext = T)
+
+
+
+
+write.csv(data, 'C:/Users/Flesch Family/Desktop/USF/Capstone-Project/cleaned_tweets.csv')
+
+ggplot(data, aes(x = binary, fill = binary)) + geom_histogram(stat = 'count') + 
+  labs(title = 'Histogram of Coded Tweets', x = '0 : Disbelief -- 1 : Belief') + guides(fill = F) + 
+  theme(axis.title = element_text(size = 15), plot.title = element_text(size = 20))
+
+lapply(data, class)
+
+```
+
+```{r Preprocessing, include = F}
+data$processed <- preprocess_corpus(data, 'tweet', astext = T)
+
+
+it <- itoken(data$processed, tokenizer = word_tokenizer)
+
+vocab <- create_vocabulary(it)
+
+
+vectorizer <- vocab_vectorizer(vocab)
+
+dtm <- create_dtm(it, vectorizer)
+```
+
+## Contrary to cursory examination, these are not the same graph!
+```{r Doc_graph, echo = F}
+vocab <- as.data.frame(vocab)
+
+doc <- ggplot(vocab[order(-vocab$term_count),][1:10,] , aes(x = reorder(term, doc_count), y = doc_count, fill = doc_count)) + 
+  geom_bar(stat = 'identity') + coord_flip() + guides(fill = F) + labs(x = 'Term', y = 'Document Count') + 
+  theme(axis.title = element_text(size = 15), plot.title = element_text(size = 20))
+doc
+```
+
+```{r Term_graph, echo = F}
+term <- ggplot(vocab[order(-vocab$term_count),][1:10,] , aes(x = reorder(term, term_count), y = term_count, fill = term_count)) + 
+  geom_bar(stat = 'identity') + coord_flip() + guides(fill = F) + labs(x = 'Term', y = 'Term Count') + 
+  theme(axis.title = element_text(size = 15), plot.title = element_text(size = 20))
+term
+```
+
+```{r}
+pred <- read.csv('C:/Users/Flesch Family/Desktop/USF/Capstone-Project/tweets_pred.csv')
+table(pred[, c('binary', 'pred')])
+
+
+cmatrix <- data.frame(true_positive = sum(pred$pred > 0 & pred$binary == 1),
+  false_positive = sum(pred$pred > 0 & pred$binary == 0) * -1,
+  true_negative = sum(pred$pred <= 0 & pred$binary == 0),
+  false_negative = sum(pred$pred <= 0 & pred$binary == 1) * -1)
+
+cmatrix <- melt(cmatrix, val.name = 'count')
+cmatrix$percent <- cmatrix$value / sum(abs(cmatrix$value))
+
+ggplot(cmatrix, aes(x = variable, y = value)) + geom_bar(stat = 'identity', fill = 'blue') + coord_flip() + 
+labs(title = 'Confusion Matrix') + theme(plot.title = element_text(size = 25), axis.title = element_blank())
+ggsave('Confusion_Matrix.png')
+
+glmnet:::auc(pred$binary, pred$pred)
+
+sum(ifelse(pred$binary == pred$pred, 1, 0)) / length(pred$pred)
+```
+
+```{r}
+test <- read.csv('C:/Users/Flesch Family/Desktop/USF/Capstone-Project/test.csv')
+
+cmatrix <- data.frame(true_positive = sum(test$PRED > 0 & test$LABEL_COLUMN == 1),
+  false_positive = sum(test$PRED > 0 & test$LABEL_COLUMN == 0) * -1,
+  true_negative = sum(test$PRED <= 0 & test$LABEL_COLUMN == 0),
+  false_negative = sum(test$PRED <= 0 & test$LABEL_COLUMN == 1) * -1)
+
+cmatrix <- melt(cmatrix, val.name = 'count')
+cmatrix$percent <- cmatrix$value / sum(abs(cmatrix$value))
+
+ggplot(cmatrix, aes(x = variable, y = value)) + geom_bar(stat = 'identity', fill = 'blue') + coord_flip() +
+  labs(title = 'Confusion Matrix') + theme(plot.title = element_text(size = 25), axis.title = element_blank())
+
+ggsave('Confusion_Matrix_Test.png')
+
+glmnet:::auc(test$LABEL_COLUMN, test$PRED)
+
+```
+
+
+
+
+
