@@ -11,27 +11,50 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 library(ggplot2)
 library(reshape2)
+library(lmtest)
 library(lubridate)
 library(dplyr)
+library(plm)
+library(bife)
+library(stargazer)
 setwd('C:/Users/Flesch Family/Desktop/USF/Capstone-Project/')
 tweets <- read.csv('pulled_pred.csv')
-djia <- read.csv('DJIA.csv')
+bp <- read.csv('bp.csv')
+exxon <- read.csv('exxon.csv')
+chevron <- read.csv('chevron.csv')
 ```
 
 ```{r}
 head(tweets[, c('tweet', 'creation_date', 'retweets', 'likes', 'location')], 2)
 ```
 
+```{r}
+bp$bp_change <- bp$open - bp$close
+bp <- bp[, c(3, 4, 5, 6, 7, 8, 9, 10, 11, 14)]
+bp <- bp[complete.cases(bp),]
+
+exxon$exxon_change <- exxon$open - exxon$close
+exxon <- exxon[, c(3, 4, 5, 6, 7, 8, 9, 10, 11, 14)]
+exxon <- exxon[complete.cases(exxon),]
+
+chevron$chevron_change <- chevron$open - chevron$close
+chevron <- chevron[, c(3, 4, 5, 6, 7, 8, 9, 10, 11, 14)]
+chevron <- chevron[complete.cases(chevron),]
+
+stocks <- merge(bp, exxon, by = 'from')
+stocks <- merge(stocks, chevron)
+
+stocks$date <- as.Date(stocks$from)
+```
+
+
 
 ```{r Formatting, message = FALSE, warning = FALSE, include = FALSE}
 tweets$creation_y.m <- as.Date(tweets$creation_y.m, format = '%Y-%m-%d')
 tweets <- tweets[!duplicated(tweets),]
-djia$creation_y.m <- as.Date(djia$DATE)
 grouped_day <- tweets %>% group_by(creation_y.m, pred) %>% summarize(N = n())
-djia <- left_join(djia[, c(2,3)], grouped_day)
-djia <- djia[djia$DJIA != '.',]
-djia$DJIA <- as.numeric(djia$DJIA)
-djia <- djia[complete.cases(djia),]
+
+tweets$author_id <- as.character(tweets$author_id)
 
 # Creating date ranges for political affiliation of the president
 democrats <- c(seq.Date(as.Date('2009-01-20'), as.Date('2017-01-19'), by = 'day'),
@@ -84,11 +107,58 @@ ggsave('belief_month.png')
 ```
 
 
-```{r, include = FALSE}
-model <- lm('belief ~ presparty', grouped_day)
+```{r}
+tweets$presparty <- ifelse(tweets$creation_y.m %in% democrats, 'Democrat',
+                                ifelse(tweets$creation_y.m %in% republicans, 'Republican', 'Error'))
+tweets$t <- tweets$creation_year
 
-summary(model)
+tweets$creation_year <- as.character(tweets$creation_year)
+
+tweets$date <- tweets$creation_y.m
+
+tweets <- left_join(tweets, stocks[, c('date', 'bp_change', 'exxon_change', 'chevron_change')], by = 'date')
+
+tweets_table <- sample_n(tweets[, c('pred', 'presparty', 'bp_change', 'exxon_change', 'chevron_change', 'author_id', 'date')], 5)
+
+numtweetsusr <- as.data.frame(table(tweets$author_id))
+
+plm_ufe2 <- plm('pred ~ presparty + bp_change + exxon_change + chevron_change',
+               tweets[tweets$author_id %in% numtweetsusr$Var1[numtweetsusr$Freq > 1],],
+               index = 'author_id')
+plm_ufe3 <- plm('pred ~ presparty + bp_change + exxon_change + chevron_change',
+               tweets[tweets$author_id %in% numtweetsusr$Var1[numtweetsusr$Freq > 2],],
+               index = 'author_id')
+plm_ufe4 <- plm('pred ~ presparty + bp_change + exxon_change + chevron_change',
+               tweets[tweets$author_id %in% numtweetsusr$Var1[numtweetsusr$Freq > 5],],
+               index = 'author_id')
+plm_ufe5 <- plm('pred ~ presparty + bp_change + exxon_change + chevron_change',
+               tweets[tweets$author_id %in% numtweetsusr$Var1[numtweetsusr$Freq > 10],],
+               index = 'author_id')
+test_ufe <- coeftest(plm_ufe2, vcov. = vcovHC(plm_ufe, cluster = 'group'))
+
+plm_data <- plm_ufe$model
+plm_data$fitted <- plm_ufe$model[[1]] - plm_ufe$residuals
+plm_data[plm_data$fitted <= 1 & plm_data$fitted >= 0,]
+
+
+summary(plm_ufe2)
+
+
+test_ufe
 ```
+
+```{r}
+stargazer(plm_ufe2, plm_ufe3, plm_ufe4, plm_ufe5, title = 'Regression Results', 
+          dep.var.labels = 'Predicted Belief', 
+          covariate.labels = c('Party (Republican)', 'BP', 'Exxon', 'Chevron'),
+          omit.stat = c('adj.rsq', 'f'), type = 'text')
+
+stargazer(plm_ufe2, plm_ufe3, plm_ufe4, plm_ufe5, title = 'Regression Results',
+          covariate.labels = c('Party (Republican)', 'BP', 'Exxon', 'Chevron'),
+          dep.var.labels = 'Predicted Belief', omit.stat = c('adj.rsq', 'f'), out = 'regressions.html')
+```
+
+
 
 
 

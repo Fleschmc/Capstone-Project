@@ -80,8 +80,13 @@ term
 
 ```{r}
 pred <- read.csv('C:/Users/Flesch Family/Desktop/USF/Capstone-Project/tweets_pred.csv')
+test <- read.csv('C:/Users/Flesch Family/Desktop/USF/Capstone-Project/test.csv')
+
+pred <- pred[pred$tweet %in% test$processed,]
+
 table(pred[, c('binary', 'pred')])
 
+pred <- left_join(pred, tweets, by = 'tweet')
 
 cmatrix <- data.frame(true_positive = sum(pred$pred > 0 & pred$binary == 1),
   false_positive = sum(pred$pred > 0 & pred$binary == 0) * -1,
